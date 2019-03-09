@@ -100,9 +100,7 @@ Note.prototype.initialize = async function initialize(publicKey, viewingKey) {
         }
         this.a = new BN(viewingKey.slice(2, 66), 16).toRed(bn128.groupReduction);
         this.k = new BN(viewingKey.slice(66, 74), 16).toRed(bn128.groupReduction);
-        console.log('foo');
         const { x, y } = await setup.readSignature(this.k.toNumber());
-        console.log('bar');
         const mu = bn128.curve.point(x, y);
         this.gamma = (mu.mul(this.a));
         this.sigma = this.gamma.mul(this.k).add(bn128.h.mul(this.a));
@@ -114,7 +112,7 @@ Note.prototype.initialize = async function initialize(publicKey, viewingKey) {
          * @member {string}
          */
     this.noteHash = getNoteHash(this.gamma, this.sigma);
-}
+};
 
 /**
  * Get the public key representation of a note
@@ -280,7 +278,6 @@ note.create = async (spendingPublicKey, value) => {
     const owner = ecdsa.accountFromPublicKey(spendingPublicKey);
     const myNote = new Note(owner);
     await myNote.initialize(null, viewingKey);
-    console.log('myNote', myNote);
     return myNote;
 };
 
