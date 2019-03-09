@@ -1,0 +1,7 @@
+--require ./test/config
+--colors 
+--exit 
+--recursive 
+--reporter spec
+--sort
+--trace-warnings
