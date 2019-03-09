@@ -1,3 +1,4 @@
+/* eslint-disable global-require */
 /**
  * Read in points from the trusted setup points database.
  * NOTICE: THE TRUSTED SETUP IN THIS REPOSITORY WAS CREATED BY AZTEC ON A SINGLE DEVICE AND
@@ -11,13 +12,23 @@
 
 const { constants: { SIGNATURES_PER_FILE } } = require('@aztec/dev-utils');
 const BN = require('bn.js');
-const fs = require('fs');
+/* eslint-disable-next-line prefer-destructuring */
+const Buffer = require('buffer/').Buffer;
 
 const bn128 = require('../bn128');
 
-const partialPath = './database/';
 const compressionMask = new BN('8000000000000000000000000000000000000000000000000000000000000000', 16);
+
 const setup = {};
+
+function arrayBufferToBufferCycle(ab) {
+    const buffer = Buffer.from(ab);
+    const view = new Uint8Array(ab);
+    for (let i = 0; i < buffer.length; i += 1) {
+        buffer[i] = view[i];
+    }
+    return buffer;
+}
 
 /**
  * Decompress a 256-bit representation of a bn128 G1 element.
@@ -66,52 +77,29 @@ setup.compress = (x, y) => {
  * @param {number} inputValue the integer whose negation was signed by the trusted setup key
  * @returns {Object.<BN, BN>} x and y coordinates of signature point, in BN form
  */
-setup.readSignature = (inputValue) => {
-    const value = Number(inputValue);
-    return new Promise((resolve, reject) => {
-        const fileNum = Math.ceil(Number(value + 1) / SIGNATURES_PER_FILE);
-
-        const fileName = partialPath + `data${(((fileNum) * SIGNATURES_PER_FILE) - 1)}.dat`;
-        fs.readFile(fileName, (err, data) => {
-            if (err) {
-                return reject(err);
-            }
-            // each file starts at 0 (0, 1024, 2048 etc)
-            const min = ((fileNum - 1) * SIGNATURES_PER_FILE);
-            const bytePosition = ((value - min) * 32);
-            // eslint-disable-next-line new-cap
-            const signatureBuf = new Buffer.alloc(32);
-            data.copy(signatureBuf, 0, bytePosition, bytePosition + 32);
-
-            const x = new BN(signatureBuf);
-            return resolve(setup.decompress(x));
-        });
-    });
-};
-
-/**
- * Load a trusted setup signature, using synchronous file loading methods (see: {@link module:setup~readSignature})
- *
- * @method readSignatureSync
- * @param {number} inputValue the integer whose negation was signed by the trusted setup key
- * @returns {Object.<BN, BN>} x and y coordinates of signature point, in BN form
- */
-setup.readSignatureSync = (inputValue) => {
+setup.readSignature = async (inputValue) => {
     const value = Number(inputValue);
     const fileNum = Math.ceil(Number(value + 1) / SIGNATURES_PER_FILE);
 
-    const fileName = partialPath + `data${(((fileNum) * SIGNATURES_PER_FILE) - 1)}.dat`;
-    const data = fs.readFileSync(fileName);
+    const fileName = `${(((fileNum) * SIGNATURES_PER_FILE) - 1)}`;
+    const url = `https://paulrberg.com/ethparis/database/data${fileName}.dat`;
 
-    // each file starts at 0 (0, 1024, 2048 etc)
-    const min = ((fileNum - 1) * SIGNATURES_PER_FILE);
-    const bytePosition = ((value - min) * 32);
-    // eslint-disable-next-line new-cap
-    const signatureBuf = new Buffer.alloc(32);
-    data.copy(signatureBuf, 0, bytePosition, bytePosition + 32);
+    try {
+        const response = await fetch(url);
+        const data = arrayBufferToBufferCycle(await response.arrayBuffer());
 
-    const x = new BN(signatureBuf);
-    return setup.decompress(x);
+        // each file starts at 0 (0, 1024, 2048 etc)
+        const min = ((fileNum - 1) * SIGNATURES_PER_FILE);
+        const bytePosition = ((value - min) * 32);
+        // eslint-disable-next-line new-cap
+        const signatureBuf = new Buffer.alloc(32);
+        data.copy(signatureBuf, 0, bytePosition, bytePosition + 32);
+
+        const x = new BN(signatureBuf);
+        return setup.decompress(x);
+    } catch (err) {
+        throw err;
+    }
 };
 
 module.exports = setup;

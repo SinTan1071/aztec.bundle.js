@@ -18,8 +18,8 @@ const aztec = {
     sign,
 };
 
-window.onload = function thisIsCool() {
+window.addEventListener('load', () => {
     window.aztec = aztec;
-};
+}, false);
 
 module.exports = aztec;

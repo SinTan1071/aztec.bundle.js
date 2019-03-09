@@ -35,6 +35,13 @@ function createSharedSecret(publicKeyHex) {
     };
 }
 
+function Note(owner = '0x') {
+    /**
+     * Ethereum address of note's owner
+     * @member {string}
+     */
+    this.owner = owner;
+}
 /**
  * Initializes a new instance of Note from either a public key or a viewing key.
  * @class
@@ -45,15 +52,11 @@ function createSharedSecret(publicKeyHex) {
  *   Notes have public keys and viewing keys.  
  *   The viewing key is required to use note in an AZTEC zero-knowledge proof
  */
-function Note(publicKey, viewingKey, owner = '0x') {
+Note.prototype.initialize = async function initialize(publicKey, viewingKey) {
+    // return (async () => {
     if (publicKey && viewingKey) {
         throw new Error('expected one of publicKey or viewingKey, not both');
     }
-    /**
-     * Ethereum address of note's owner
-     * @member {string}
-     */
-    this.owner = owner;
     if (publicKey) {
         if (typeof (publicKey) !== 'string') {
             throw new Error(`expected key type ${typeof (publicKey)} to be of type string`);
@@ -62,30 +65,30 @@ function Note(publicKey, viewingKey, owner = '0x') {
             throw new Error(`invalid public key length, expected 200, got ${publicKey.length}`);
         }
         /**
-         * Viewing key of note. BN instance in bn128 group's reduction context
-         * @member {BN}
-         */
+             * Viewing key of note. BN instance in bn128 group's reduction context
+             * @member {BN}
+             */
         this.a = null;
         /**
-         * Value of note. BN instance in bn128 group's reduction context
-         * @member {BN}
-         */
+             * Value of note. BN instance in bn128 group's reduction context
+             * @member {BN}
+             */
         this.k = null;
         /**
-         * AZTEC commitment point \gamma, a bn128 group element
-         * @member {Point}
-         */
+             * AZTEC commitment point \gamma, a bn128 group element
+             * @member {Point}
+             */
         this.gamma = bn128.curve.decodePoint(publicKey.slice(2, 68), 'hex');
         /**
-         * AZTEC commitment point \sigma, a bn128 group element
-         * @member {Point}
-         */
+             * AZTEC commitment point \sigma, a bn128 group element
+             * @member {Point}
+             */
         this.sigma = bn128.curve.decodePoint(publicKey.slice(68, 134), 'hex');
         /**
-         * Note's ephemeral key, a secp256k1 group element. A note owner can use this point
-         * to compute the note's viewing key.
-         * @member {Point}
-         */
+             * Note's ephemeral key, a secp256k1 group element. A note owner can use this point
+             * to compute the note's viewing key.
+             * @member {Point}
+             */
         this.ephemeral = secp256k1.ec.keyFromPublic(publicKey.slice(134, 200), 'hex');
     }
     if (viewingKey) {
@@ -97,17 +100,19 @@ function Note(publicKey, viewingKey, owner = '0x') {
         }
         this.a = new BN(viewingKey.slice(2, 66), 16).toRed(bn128.groupReduction);
         this.k = new BN(viewingKey.slice(66, 74), 16).toRed(bn128.groupReduction);
-        const { x, y } = setup.readSignatureSync(this.k.toNumber());
+        console.log('foo');
+        const { x, y } = await setup.readSignature(this.k.toNumber());
+        console.log('bar');
         const mu = bn128.curve.point(x, y);
         this.gamma = (mu.mul(this.a));
         this.sigma = this.gamma.mul(this.k).add(bn128.h.mul(this.a));
         this.ephemeral = secp256k1.ec.keyFromPublic(viewingKey.slice(74, 140), 'hex');
     }
     /**
-     * keccak256 hash of note coordinates, aligned in 32-byte chunks.  
-     *  Alignment is [gamma.x, gamma.y, sigma.x, sigma.y]
-     * @member {string}
-     */
+         * keccak256 hash of note coordinates, aligned in 32-byte chunks.  
+         *  Alignment is [gamma.x, gamma.y, sigma.x, sigma.y]
+         * @member {string}
+         */
     this.noteHash = getNoteHash(this.gamma, this.sigma);
 }
 
@@ -210,7 +215,8 @@ note.utils = utils;
  */
 note.fromEventLog = async (logNoteData, spendingKey = null) => {
     const publicKey = noteCoder.decodeNoteFromEventLog(logNoteData);
-    const newNote = new Note(publicKey, null);
+    const newNote = new Note();
+    await newNote.initialize(publicKey, null);
     if (spendingKey) {
         await newNote.derive(spendingKey);
     }
@@ -224,8 +230,10 @@ note.fromEventLog = async (logNoteData, spendingKey = null) => {
  * @param {string} publicKey the public key for the note
  * @returns {Note} created note instance
  */
-note.fromPublicKey = (publicKey) => {
-    return new Note(publicKey, null);
+note.fromPublicKey = async (publicKey) => {
+    const newNote = new Note();
+    await newNote.initialize(publicKey, null);
+    return newNote;
 };
 
 /**
@@ -235,8 +243,9 @@ note.fromPublicKey = (publicKey) => {
  * @param {string} viewingKey the viewing key for the note
  * @returns {Note} created note instance
  */
-note.fromViewKey = (viewingKey) => {
-    const newNote = new Note(null, viewingKey);
+note.fromViewKey = async (viewingKey) => {
+    const newNote = new Note();
+    await newNote.initialize(null, viewingKey);
     return newNote;
 };
 
@@ -249,7 +258,7 @@ note.fromViewKey = (viewingKey) => {
  * @returns {Note} created note instance
  */
 note.derive = async (publicKey, spendingKey) => {
-    const newNote = new Note(publicKey);
+    const newNote = await new Note(publicKey);
     await newNote.derive(spendingKey);
     return newNote;
 };
@@ -262,14 +271,17 @@ note.derive = async (publicKey, spendingKey) => {
  * @param {number} value value of the note
  * @returns {Note} created note instance
  */
-note.create = (spendingPublicKey, value) => {
+note.create = async (spendingPublicKey, value) => {
     const sharedSecret = createSharedSecret(spendingPublicKey);
     const a = padLeft(new BN(sharedSecret.encoded.slice(2), 16).umod(bn128.curve.n).toString(16), 64);
     const k = padLeft(web3Utils.toHex(value).slice(2), 8);
     const ephemeral = padLeft(sharedSecret.ephemeralKey.slice(2), 66);
     const viewingKey = `0x${a}${k}${ephemeral}`;
     const owner = ecdsa.accountFromPublicKey(spendingPublicKey);
-    return new Note(null, viewingKey, owner);
+    const myNote = new Note(owner);
+    await myNote.initialize(null, viewingKey);
+    console.log('myNote', myNote);
+    return myNote;
 };
 
 /**
